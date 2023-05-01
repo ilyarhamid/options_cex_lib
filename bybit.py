@@ -130,24 +130,39 @@ class Bybit():
         requests.get(send_text)
 
     def place_option_pair_orders(self, symbol, side, size, limit_price, put_price):
+        side = side.capitalize()
         put_symbol = symbol[:-1] + "P"
         put_side = "Sell" if side == "Buy" else "Buy"
 
-        order_info = [
-                        {"symbol": symbol, "side": side, "orderType": "Limit", "qty": str(size), "price": str(limit_price), "orderLinkId": str(time.time()), "timeInForce": "GTC"},
-                        {"symbol": put_symbol, "side": put_side, "orderType": "Limit", "qty": str(size), "price": str(put_price), "orderLinkId": str(time.time()), "timeInForce": "GTC"}
+        order_list = [
+                        {"symbol": symbol, "side": side, "size": str(size), "price": str(limit_price)},
+                        {"symbol": put_symbol, "side": put_side, "size": str(size), "price": str(put_price)}
                     ]
+        return self.create_option_batch_order(order_list=order_list)
+    
+    def create_option_batch_order(self, order_list):
+        order_info = [{"symbol": order["symbol"], "side": order["side"], "orderType": "Limit", "qty": order["size"], "price": order["price"], "orderLinkId": str(time.time()), "timeInForce": "GTC"} 
+                      for order in order_list
+                      ]
         return self.client.place_batch_order(category="option", request=order_info)
     
-    def place_perp_order(self, side, size, limit_price):
-        order_info = {"category": "linear","symbol": f"{self.token}PERP", "side": str(side), "orderType": "Limit", "qty": str(size), "price": str(limit_price), "orderLinkId": str(time.time()), "timeInForce": "GoodTillCancel"}
+    def create_order(self, symbol, side, size, price):
+        side = side.capitalize()
+        if symbol[-2:] in ["-P", "-C"]:
+            category = "option"
+        else:
+            category = "linear"
+        order_info = {"category":category, "symbol": symbol, "side": str(side), "orderType": "Limit", "qty": str(size), "price": str(price), "orderLinkId": str(time.time()), "timeInForce": "GTC"}
+        if "PERP" in symbol:
         # USDC PERP are not available on API V5. Have to use V3 api
-        return self.client._submit_request(
-            method="POST",
-            path=f"{self.client.endpoint}/contract/v3/private/order/create",
-            query=order_info,
-            auth=True,
+            order_info["timeInForce"] = "GoodTillCancel"
+            return self.client._submit_request(
+                method="POST",
+                path=f"{self.client.endpoint}/contract/v3/private/order/create",
+                query=order_info,
+                auth=True,
         )
+        return self.client.place_order(**order_info)
 
     def check_arb(self, pair):
         msg = ""
